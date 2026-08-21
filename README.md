@@ -2,14 +2,17 @@
 
 Codex-style goal tracking for pi.
 
-This package adds a `/goal` command plus four model-callable tools:
+This package adds a `/goal` command plus five model-callable tools:
 
 - `get_goal`
 - `create_goal`
 - `update_goal`
 - `pause_goal`
+- `resume_goal`
 
 `pause_goal` lets the model pause an active goal when it hits a hard block that no available action can resolve (missing credentials or permissions, a down dependency, a needed user decision, a broken environment). The model must include the blocking reason; the user resumes with `/goal resume`. Soft stops such as low budget, partial progress, or uncertainty never justify pausing.
+
+`resume_goal` is the counterpart: once the user confirms the hard block is resolved, the model can reactivate a paused goal itself and continue working. It uses the same gate as `/goal resume` — any goal in status `paused` can be resumed — while a `budgetLimited` goal stays locked until the user raises or replaces the token budget.
 
 Goal state is stored in pi session custom entries, so it follows session history, resume, fork, tree navigation, reload, and compaction behavior without an external database.
 

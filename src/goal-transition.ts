@@ -34,6 +34,10 @@ export type GoalTransitionRequest =
       source: GoalEntrySource;
     }
   | {
+      kind: "tool_resume";
+      source: GoalEntrySource;
+    }
+  | {
       kind: "runtime_accounting";
       nextGoal: ThreadGoal;
     };
@@ -250,9 +254,10 @@ function planDerivedActiveToPausedTransition(
 }
 
 function planDerivedResumeActiveTransition(
+  kind: "resume_active" | "tool_resume",
   current: ThreadGoal | null,
+  source: GoalEntrySource = "runtime",
 ): GoalTransitionPlan {
-  const kind = "resume_active";
   requireCurrentGoal(current, kind);
   requireStatus(current, "paused", kind);
   const nextGoal = deriveGoalWithStatus(current, "active");
@@ -260,7 +265,7 @@ function planDerivedResumeActiveTransition(
   return {
     persist: "set",
     nextGoal,
-    source: "runtime",
+    source,
     beforePersist: mergeGoalTransitionEffects(
       [{ type: "clearContinuation" }, { type: "resetRecovery" }],
       memoryEffectsFromGoalChange(current, nextGoal),
@@ -344,7 +349,12 @@ export function planGoalTransition(
       );
 
     case "resume_active":
-      return planDerivedResumeActiveTransition(current);
+      return planDerivedResumeActiveTransition("resume_active", current);
+
+    case "tool_resume":
+      // Agent-initiated resumes reuse the resume effect bundle but persist
+      // with the caller's source for replay provenance.
+      return planDerivedResumeActiveTransition("tool_resume", current, request.source);
 
     case "recovery_pause":
       return planDerivedActiveToPausedTransition(

@@ -218,6 +218,26 @@ test("tool_pause derives paused goal with tool source and full pause effects", (
   });
 });
 
+test("tool_resume derives active goal with tool source and resume effects", () => {
+  withUnixTime(100, () => {
+    const goal = { ...createThreadGoal("ship it", 10), status: "paused" as const };
+    const plan = planGoalTransition(goal, { kind: "tool_resume", source: "tool" });
+
+    assertDisjointPrimitivePlan(plan, "tool resume");
+    assert.equal(plan.persist, "set");
+    assert.equal(plan.source, "tool");
+    assert.equal(plan.nextGoal.status, "active");
+    assert.equal(plan.nextGoal.goalId, goal.goalId);
+    assert.equal(plan.nextGoal.updatedAt, 100);
+    assert.deepEqual(effectTypes(plan.beforePersist), [
+      "clearContinuation",
+      "resetRecovery",
+      "clearBudgetWarning",
+    ]);
+    assert.deepEqual(plan.afterPersist, []);
+  });
+});
+
 test("resume_active derives active goal from paused current", () => {
   withUnixTime(100, () => {
     const current = { ...createThreadGoal("ship it", 10), status: "paused" as const };
@@ -365,6 +385,21 @@ test("tool_pause rejects non-active current", () => {
   assert.throws(
     () => planGoalTransition(paused, { kind: "tool_pause", source: "tool" }),
     /Invalid tool_pause transition: current status must be active/,
+  );
+});
+
+test("tool_resume rejects null current", () => {
+  assert.throws(
+    () => planGoalTransition(null, { kind: "tool_resume", source: "tool" }),
+    /Invalid tool_resume transition: current goal is required/,
+  );
+});
+
+test("tool_resume rejects non-paused current", () => {
+  const active = createThreadGoal("ship it");
+  assert.throws(
+    () => planGoalTransition(active, { kind: "tool_resume", source: "tool" }),
+    /Invalid tool_resume transition: current status must be paused/,
   );
 });
 

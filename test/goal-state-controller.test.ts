@@ -218,3 +218,71 @@ test("pauseGoal rejects when no goal exists", () => {
   assert.equal(result.ok, false);
   assert.equal(result.goal, null);
 });
+
+test("resumeGoal transitions a paused goal to active and persists a tool-sourced snapshot", () => {
+  const harness = createStateControllerTestHarness({ ...activeGoal, status: "paused" });
+
+  const result = harness.stateController.resumeGoal("tool", harness.ctx);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.goal?.status, "active");
+  const resumeEntries = harness.entries.flatMap((entry) =>
+    isGoalCustomEntry(entry) && entry.kind === "set" && entry.source === "tool" ? [entry] : [],
+  );
+  assert.equal(resumeEntries.length, 1);
+  assert.equal(resumeEntries[0]?.goal.status, "active");
+  // Tool resume must carry the same effect bundle as command resumes:
+  // continuation state cleared, recovery machine reset, stale budget warning
+  // cleared on reactivation.
+  assert.deepEqual(harness.effectCalls, ["clearContinuation", "resetRecovery", "clearBudgetWarning"]);
+});
+
+test("resumeGoal rejects goals that are not paused", () => {
+  const activeHarness = createStateControllerTestHarness(activeGoal);
+  const activeResult = activeHarness.stateController.resumeGoal("tool", activeHarness.ctx);
+  assert.equal(activeResult.ok, false);
+  assert.match(activeResult.message, /Only paused goals can be resumed \(current status: active\)/);
+
+  const completeHarness = createStateControllerTestHarness({ ...activeGoal, status: "complete" });
+  assert.equal(completeHarness.stateController.resumeGoal("tool", completeHarness.ctx).ok, false);
+
+  // budgetLimited must stay locked: only the user can raise or replace budget.
+  const budgetHarness = createStateControllerTestHarness({
+    ...activeGoal,
+    status: "budgetLimited",
+    tokenBudget: 10,
+    usage: { tokensUsed: 10, activeSeconds: 0 },
+  });
+  const budgetResult = budgetHarness.stateController.resumeGoal("tool", budgetHarness.ctx);
+  assert.equal(budgetResult.ok, false);
+  assert.match(budgetResult.message, /Only paused goals can be resumed \(current status: budgetLimited\)/);
+  assert.match(budgetResult.message, /raise or replace/);
+});
+
+test("resumeGoal rejects when no goal exists", () => {
+  const harness = createStateControllerTestHarness(null);
+
+  const result = harness.stateController.resumeGoal("tool", harness.ctx);
+
+  assert.equal(result.ok, false);
+  assert.match(result.message, /No goal exists to resume/);
+});
+
+test("resumeGoal rejects a paused goal whose usage already meets its budget", () => {
+  // Budget re-derivation clamps the resumed status back to budgetLimited;
+  // the tool must not report success for a goal that stays locked.
+  const harness = createStateControllerTestHarness({
+    ...activeGoal,
+    status: "paused",
+    tokenBudget: 10,
+    usage: { tokensUsed: 10, activeSeconds: 0 },
+  });
+
+  const result = harness.stateController.resumeGoal("tool", harness.ctx);
+
+  assert.equal(result.ok, false);
+  assert.match(result.message, /current status: budgetLimited/);
+  assert.match(result.message, /raise or replace/);
+  assert.deepEqual(harness.effectCalls, []);
+  assert.equal(harness.entries.length, 0);
+});
