@@ -33,6 +33,7 @@ export interface GoalRuntimeController extends GoalRuntimeEventHandlers {
   clearGoal(source: GoalEntrySource, ctx: ExtensionContext): void;
   completeGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
   pauseGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
+  resumeGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
   cancelProviderLimitAutoResume(goalId: string, ctx: StatusContext): void;
   resumeGoalWithContinuation(goalId: string, source: GoalEntrySource, ctx: StatusContext): GoalResult;
 }
@@ -178,6 +179,15 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
     return stateController.pauseGoal(source, ctx);
   };
 
+  // Mirror pauseGoal's flush so any pending spend lands in the reactivated
+  // snapshot. No continuation message is queued: the calling agent is live
+  // mid-turn and continues working from the tool result.
+  const resumeGoal = (source: GoalEntrySource, ctx: ExtensionContext): GoalResult => {
+    providerLimitAutoResume.clear();
+    goalAccounting.accountProgress(ctx, false, 0, true);
+    return stateController.resumeGoal(source, ctx);
+  };
+
   return {
     getGoalForDisplay: goalForDisplay,
     getGoalStartTurnStrategy: () => goalStartTurnStrategy(runtimeState.recoveryState.phase),
@@ -195,6 +205,7 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
     },
     completeGoal,
     pauseGoal,
+    resumeGoal,
     resumeGoalWithContinuation,
     ...eventHandlers,
   };
@@ -207,6 +218,7 @@ export function registerGoalRuntimeController(pi: ExtensionAPI): void {
     setGoal: controller.setGoal.bind(controller),
     completeGoal: controller.completeGoal.bind(controller),
     pauseGoal: controller.pauseGoal.bind(controller),
+    resumeGoal: controller.resumeGoal.bind(controller),
   });
   registerGoalCommand(pi, {
     getGoal: () => controller.getGoalForDisplay(),

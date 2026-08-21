@@ -40,11 +40,19 @@ const PauseGoalParams = Type.Object({
   }),
 });
 
+const ResumeGoalParams = Type.Object({
+  reason: Type.String({
+    description:
+      "What resolved the hard block that caused the pause, such as the user confirming credentials were added or a blocked dependency is available again. Reported to the user.",
+  }),
+});
+
 export interface ToolHost {
   getGoal(): ThreadGoal | null;
   setGoal(goal: ThreadGoal, source: GoalEntrySource, ctx: ExtensionContext): void;
   completeGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
   pauseGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
+  resumeGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
 }
 
 function textResult(
@@ -117,6 +125,28 @@ export function registerGoalTools(pi: ExtensionAPI, host: ToolHost): void {
         throwToolError(result.message);
       }
       const text = [`Goal paused. Reason: ${params.reason}`, "", toToolText(result.goal), "", "The user can resume this goal with /goal resume."].join("\n");
+      return { content: [{ type: "text", text }], details: { ...goalToolResponse(result.goal), error: null } };
+    },
+  });
+
+  // Agent-initiated resume is the counterpart to pause_goal: it reactivates a
+  // goal only once the hard block that caused the pause is actually resolved.
+  pi.registerTool({
+    name: "resume_goal",
+    label: "Resume Goal",
+    description:
+      "Resume a Codex-style goal that was previously paused on a hard block. Only use this tool when the blocking issue has actually been resolved, for example because the user confirmed that credentials were added, a required service is back up, or a pending decision was made; state what resolved the block. Never use this tool merely because you want to keep working, and note that it cannot resume a budgetLimited goal: an exhausted token budget must be raised or replaced by the user first.",
+    promptSnippet:
+      "Resume a paused goal only once its hard block has actually been resolved, then continue working toward the objective.",
+    promptGuidelines: TOOL_PROMPT_GUIDELINES,
+    parameters: ResumeGoalParams,
+    executionMode: "sequential",
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const result = host.resumeGoal("tool", ctx);
+      if (!result.ok || !result.goal) {
+        throwToolError(result.message);
+      }
+      const text = [`Goal resumed. Reason: ${params.reason}`, "", toToolText(result.goal), "", "Continue working toward the objective."].join("\n");
       return { content: [{ type: "text", text }], details: { ...goalToolResponse(result.goal), error: null } };
     },
   });

@@ -21,6 +21,7 @@ test("tool prompt guidelines include exposed and namespaced goal tool guidance",
   assert.match(GOAL_TOOL_NAME_GUIDANCE, /pi__create_goal/);
   assert.match(GOAL_TOOL_NAME_GUIDANCE, /pi__update_goal/);
   assert.match(GOAL_TOOL_NAME_GUIDANCE, /pi__pause_goal/);
+  assert.match(GOAL_TOOL_NAME_GUIDANCE, /pi__resume_goal/);
   assert.match(GOAL_TOOL_NAME_GUIDANCE, /Do not assume display, history, or transcript tool names are callable/);
 
   assert.equal(goalToolReference("update_goal"), "update_goal (or the exposed namespaced equivalent, such as pi__update_goal)");
@@ -35,6 +36,12 @@ test("tool prompt guidelines include exposed and namespaced goal tool guidance",
   assert.match(pauseGuideline, /hard block that no available action can resolve/);
   assert.match(pauseGuideline, /Never use/);
   assert.match(pauseGuideline, /\/goal resume/);
+  // The resume contract is the mirror image: only once the block is resolved,
+  // and never for budgetLimited goals.
+  const resumeGuideline = TOOL_PROMPT_GUIDELINES.find((line) => line.includes("resume_goal") && line.includes("resolved"));
+  assert.ok(resumeGuideline);
+  assert.match(resumeGuideline, /hard block has actually been resolved/);
+  assert.match(resumeGuideline, /budgetLimited/);
   for (const guideline of completionAuditToolGuidelines()) {
     assert.ok(TOOL_PROMPT_GUIDELINES.includes(guideline));
   }

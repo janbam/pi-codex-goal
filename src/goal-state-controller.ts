@@ -42,6 +42,8 @@ export interface GoalStateController {
   completeGoal: (source: GoalEntrySource, ctx: ExtensionContext) => GoalResult;
   // StatusContext suffices here: pausing only refreshes UI status.
   pauseGoal: (source: GoalEntrySource, ctx: StatusContext) => GoalResult;
+  // StatusContext suffices here: resuming only refreshes UI status.
+  resumeGoal: (source: GoalEntrySource, ctx: StatusContext) => GoalResult;
   flushGoalPersistence: GoalPersistence["flushGoalPersistence"];
   getGoal: () => ThreadGoal | null;
   isCurrentActiveGoalId: (goalId: string) => boolean;
@@ -213,6 +215,43 @@ export function createGoalStateController(deps: GoalStateControllerDeps) {
     return result;
   };
 
+  const resumeGoal = (source: GoalEntrySource, ctx: StatusContext): GoalResult => {
+    // Tool-driven resumes mirror command resumes but are restricted to
+    // "paused": budgetLimited exhaustion must be resolved by the user raising
+    // or replacing the token budget, not by the agent re-activating the goal.
+    const goal = getGoal();
+    if (!goal) {
+      return { ok: false, message: "No goal exists to resume.", goal: null };
+    }
+    if (goal.status !== "paused") {
+      const hint =
+        goal.status === "budgetLimited"
+          ? " The token budget is exhausted; ask the user to raise or replace it."
+          : "";
+      return {
+        ok: false,
+        message: `Only paused goals can be resumed (current status: ${goal.status}).${hint}`,
+        goal,
+      };
+    }
+    const result = updateGoalStatus(goal, "active");
+    if (!result.ok || !result.goal) {
+      return result;
+    }
+    // Budget re-derivation can clamp the next status back to budgetLimited
+    // when usage already meets the budget; keep such goals locked instead of
+    // reporting a successful resume.
+    if (result.goal.status !== "active") {
+      return {
+        ok: false,
+        message: `Only paused goals can be resumed (current status: ${result.goal.status}). The token budget is exhausted; ask the user to raise or replace it.`,
+        goal,
+      };
+    }
+    applyGoalTransition({ kind: "tool_resume", source }, ctx);
+    return result;
+  };
+
   const controller: GoalStateController = {
     applyGoalTransition,
     beginOverflowRecovery,
@@ -224,6 +263,7 @@ export function createGoalStateController(deps: GoalStateControllerDeps) {
     pauseForAbort,
     pauseForRecovery,
     pauseGoal,
+    resumeGoal,
     persistHostOverflowUserReset,
     reloadFromSession,
     resumePausedGoal,
