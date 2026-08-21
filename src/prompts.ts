@@ -4,9 +4,9 @@ import type { ThreadGoal } from "./types.js";
 const CONTINUATION_MARKER_PREFIX = "<pi_goal_continuation goal_id=\"";
 
 export const GOAL_TOOL_NAME_GUIDANCE =
-  "Call each goal tool by the name exposed in your available tool list. In pi that is usually get_goal, create_goal, and update_goal; in bridged MCP runs it may be a namespaced variant such as pi__get_goal, pi__create_goal, or pi__update_goal. Do not assume display, history, or transcript tool names are callable unless they appear in your tool list.";
+  "Call each goal tool by the name exposed in your available tool list. In pi that is usually get_goal, create_goal, update_goal, and pause_goal; in bridged MCP runs it may be a namespaced variant such as pi__get_goal, pi__create_goal, pi__update_goal, or pi__pause_goal. Do not assume display, history, or transcript tool names are callable unless they appear in your tool list.";
 
-type GoalToolName = "get_goal" | "create_goal" | "update_goal";
+type GoalToolName = "get_goal" | "create_goal" | "update_goal" | "pause_goal";
 
 export function goalToolReference(toolName: GoalToolName): string {
   return `${toolName} (or the exposed namespaced equivalent, such as pi__${toolName})`;
@@ -58,6 +58,7 @@ export const TOOL_PROMPT_GUIDELINES = [
   `Use ${goalToolReference("get_goal")} when you need to inspect the current long-running user objective.`,
   `Use ${goalToolReference("create_goal")} only when the user explicitly asks you to start tracking a concrete goal; do not infer goals from ordinary tasks and do not create a second goal while a non-complete goal already exists. After a goal is complete, ${goalToolReference("create_goal")} replaces it with a new active goal.`,
   ...completionAuditToolGuidelines(),
+  `Use ${goalToolReference("pause_goal")} only when the goal has hit a hard block that no available action can resolve, such as missing credentials or permissions, a required external service being down, a needed user decision, or a broken environment. Always include the concrete blocking reason. Never use ${goalToolReference("pause_goal")} merely because work is stopping, the token budget is low, progress is partial, or you are uncertain; the user resumes paused goals with /goal resume.`,
   "When a goal is active, keep working through clear low-risk next steps instead of stopping at a plan.",
 ];
 

@@ -30,6 +30,10 @@ export type GoalTransitionRequest =
       recoveryReason: string;
     }
   | {
+      kind: "tool_pause";
+      source: GoalEntrySource;
+    }
+  | {
       kind: "runtime_accounting";
       nextGoal: ThreadGoal;
     };
@@ -227,9 +231,10 @@ function requireNonRewindingUpdatedAt(current: ThreadGoal, nextGoal: ThreadGoal,
 }
 
 function planDerivedActiveToPausedTransition(
-  kind: "abort_pause" | "recovery_pause" | "recovery_shutdown_pause",
+  kind: "abort_pause" | "recovery_pause" | "recovery_shutdown_pause" | "tool_pause",
   current: ThreadGoal | null,
   extraBefore: readonly GoalTransitionEffect[],
+  source: GoalEntrySource = "runtime",
 ): GoalTransitionPlan {
   requireCurrentGoal(current, kind);
   requireStatus(current, "active", kind);
@@ -238,7 +243,7 @@ function planDerivedActiveToPausedTransition(
   return {
     persist: "set",
     nextGoal,
-    source: "runtime",
+    source,
     beforePersist: mergeGoalTransitionEffects([...extraBefore], memoryEffectsFromGoalChange(current, nextGoal)),
     afterPersist: [],
   };
@@ -321,6 +326,21 @@ export function planGoalTransition(
           { type: "resetRecovery" },
           { type: "clearBudgetWarning" },
         ],
+      );
+
+    case "tool_pause":
+      // Agent-initiated pauses get the same effect bundle as abort pauses so
+      // no stale recovery state survives into the paused goal.
+      return planDerivedActiveToPausedTransition(
+        "tool_pause",
+        current,
+        [
+          { type: "clearContinuation" },
+          { type: "clearActiveAccounting" },
+          { type: "resetRecovery" },
+          { type: "clearBudgetWarning" },
+        ],
+        request.source,
       );
 
     case "resume_active":

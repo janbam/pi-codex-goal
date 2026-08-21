@@ -20,6 +20,7 @@ test("tool prompt guidelines include exposed and namespaced goal tool guidance",
   assert.match(GOAL_TOOL_NAME_GUIDANCE, /pi__get_goal/);
   assert.match(GOAL_TOOL_NAME_GUIDANCE, /pi__create_goal/);
   assert.match(GOAL_TOOL_NAME_GUIDANCE, /pi__update_goal/);
+  assert.match(GOAL_TOOL_NAME_GUIDANCE, /pi__pause_goal/);
   assert.match(GOAL_TOOL_NAME_GUIDANCE, /Do not assume display, history, or transcript tool names are callable/);
 
   assert.equal(goalToolReference("update_goal"), "update_goal (or the exposed namespaced equivalent, such as pi__update_goal)");
@@ -28,6 +29,12 @@ test("tool prompt guidelines include exposed and namespaced goal tool guidance",
   assert.match(combined, /get_goal \(or the exposed namespaced equivalent, such as pi__get_goal\)/);
   assert.match(combined, /create_goal \(or the exposed namespaced equivalent, such as pi__create_goal\)/);
   assert.match(combined, /update_goal \(or the exposed namespaced equivalent, such as pi__update_goal\)/);
+  // The pause contract must stay strict: hard blocks only, never soft stops.
+  const pauseGuideline = TOOL_PROMPT_GUIDELINES.find((line) => line.includes("hard block"));
+  assert.ok(pauseGuideline);
+  assert.match(pauseGuideline, /hard block that no available action can resolve/);
+  assert.match(pauseGuideline, /Never use/);
+  assert.match(pauseGuideline, /\/goal resume/);
   for (const guideline of completionAuditToolGuidelines()) {
     assert.ok(TOOL_PROMPT_GUIDELINES.includes(guideline));
   }
