@@ -40,6 +40,8 @@ export interface GoalStateController {
   ) => boolean;
   beginOverflowRecovery: (ctx: StatusContext) => void;
   completeGoal: (source: GoalEntrySource, ctx: ExtensionContext) => GoalResult;
+  // StatusContext suffices here: pausing only refreshes UI status.
+  pauseGoal: (source: GoalEntrySource, ctx: StatusContext) => GoalResult;
   flushGoalPersistence: GoalPersistence["flushGoalPersistence"];
   getGoal: () => ThreadGoal | null;
   isCurrentActiveGoalId: (goalId: string) => boolean;
@@ -186,6 +188,31 @@ export function createGoalStateController(deps: GoalStateControllerDeps) {
     return result;
   };
 
+  const pauseGoal = (source: GoalEntrySource, ctx: StatusContext): GoalResult => {
+    // Tool-driven pauses are stricter than command pauses: only an active goal
+    // may be paused, and budgetLimited must stay budgetLimited rather than
+    // masquerade as paused.
+    const goal = getGoal();
+    if (!goal) {
+      return { ok: false, message: "No active goal exists.", goal: null };
+    }
+    if (goal.status !== "active") {
+      return {
+        ok: false,
+        message: `Only active goals can be paused (current status: ${goal.status}).`,
+        goal,
+      };
+    }
+    const result = updateGoalStatus(goal, "paused");
+    if (!result.ok || !result.goal) {
+      return result;
+    }
+    // tool_pause carries the full pause effect bundle (including recovery
+    // reset) and persists with the caller's source for replay provenance.
+    applyGoalTransition({ kind: "tool_pause", source }, ctx);
+    return result;
+  };
+
   const controller: GoalStateController = {
     applyGoalTransition,
     beginOverflowRecovery,
@@ -196,6 +223,7 @@ export function createGoalStateController(deps: GoalStateControllerDeps) {
     maybeFlushRuntimePersistence: deps.persistence.maybeFlushRuntimePersistence,
     pauseForAbort,
     pauseForRecovery,
+    pauseGoal,
     persistHostOverflowUserReset,
     reloadFromSession,
     resumePausedGoal,

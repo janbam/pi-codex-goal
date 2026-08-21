@@ -33,10 +33,18 @@ const UpdateGoalParams = Type.Object({
   }),
 });
 
+const PauseGoalParams = Type.Object({
+  reason: Type.String({
+    description:
+      "Concrete description of the hard block and what would unblock the goal. Reported to the user.",
+  }),
+});
+
 export interface ToolHost {
   getGoal(): ThreadGoal | null;
   setGoal(goal: ThreadGoal, source: GoalEntrySource, ctx: ExtensionContext): void;
   completeGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
+  pauseGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
 }
 
 function textResult(
@@ -88,6 +96,28 @@ export function registerGoalTools(pi: ExtensionAPI, host: ToolHost): void {
       }
       host.setGoal(result.goal, "tool", ctx);
       return textResult(toToolText(result.goal), result.goal);
+    },
+  });
+
+  // Agent-initiated pause is policy-gated here and in the host: it exists for
+  // hard blocks only, so the description carries the contract the model sees.
+  pi.registerTool({
+    name: "pause_goal",
+    label: "Pause Goal",
+    description:
+      "Pause the current Codex-style goal when it has hit a hard block that no available action can resolve, such as missing credentials or permissions, a required external service being down, a needed user decision, or a broken environment. Never use this tool merely because work is stopping, the token budget is low, progress is partial, or you are uncertain; in those cases keep working, or call update_goal only if the goal is truly complete. The user resumes a paused goal with /goal resume.",
+    promptSnippet:
+      "Pause the current goal only after it hits a hard block that no available action can resolve; include the blocking reason. The user resumes with /goal resume.",
+    promptGuidelines: TOOL_PROMPT_GUIDELINES,
+    parameters: PauseGoalParams,
+    executionMode: "sequential",
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const result = host.pauseGoal("tool", ctx);
+      if (!result.ok || !result.goal) {
+        throwToolError(result.message);
+      }
+      const text = [`Goal paused. Reason: ${params.reason}`, "", toToolText(result.goal), "", "The user can resume this goal with /goal resume."].join("\n");
+      return { content: [{ type: "text", text }], details: { ...goalToolResponse(result.goal), error: null } };
     },
   });
 

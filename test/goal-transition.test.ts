@@ -197,6 +197,27 @@ test("abort_pause derives paused goal from active current", () => {
   });
 });
 
+test("tool_pause derives paused goal with tool source and full pause effects", () => {
+  withUnixTime(100, () => {
+    const goal = createThreadGoal("ship it", 10);
+    const plan = planGoalTransition(goal, { kind: "tool_pause", source: "tool" });
+
+    assertDisjointPrimitivePlan(plan, "tool pause");
+    assert.equal(plan.persist, "set");
+    assert.equal(plan.source, "tool");
+    assert.equal(plan.nextGoal.status, "paused");
+    assert.equal(plan.nextGoal.goalId, goal.goalId);
+    assert.equal(plan.nextGoal.updatedAt, 100);
+    assert.deepEqual(effectTypes(plan.beforePersist), [
+      "clearContinuation",
+      "clearActiveAccounting",
+      "resetRecovery",
+      "clearBudgetWarning",
+    ]);
+    assert.deepEqual(plan.afterPersist, []);
+  });
+});
+
 test("resume_active derives active goal from paused current", () => {
   withUnixTime(100, () => {
     const current = { ...createThreadGoal("ship it", 10), status: "paused" as const };
@@ -262,6 +283,7 @@ test("pause and recovery transitions use wall-clock updatedAt without future dri
     const active = createThreadGoal("ship it", 10);
     const plans = [
       planGoalTransition(active, { kind: "abort_pause" }),
+      planGoalTransition(active, { kind: "tool_pause", source: "tool" }),
       planGoalTransition(active, {
         kind: "recovery_pause",
         recoveryReason: "context_length_exceeded",
@@ -330,6 +352,21 @@ for (const kind of ["abort_pause", "resume_active", "recovery_pause", "recovery_
     );
   });
 }
+
+test("tool_pause rejects null current", () => {
+  assert.throws(
+    () => planGoalTransition(null, { kind: "tool_pause", source: "tool" }),
+    /Invalid tool_pause transition: current goal is required/,
+  );
+});
+
+test("tool_pause rejects non-active current", () => {
+  const paused = { ...createThreadGoal("ship it"), status: "paused" as const };
+  assert.throws(
+    () => planGoalTransition(paused, { kind: "tool_pause", source: "tool" }),
+    /Invalid tool_pause transition: current status must be active/,
+  );
+});
 
 test("abort_pause rejects non-active current", () => {
   const paused = { ...createThreadGoal("ship it"), status: "paused" as const };

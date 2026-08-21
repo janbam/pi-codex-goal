@@ -32,6 +32,7 @@ export interface GoalRuntimeController extends GoalRuntimeEventHandlers {
   setGoal(goal: ThreadGoal, source: GoalEntrySource, ctx: ExtensionContext): void;
   clearGoal(source: GoalEntrySource, ctx: ExtensionContext): void;
   completeGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
+  pauseGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
   cancelProviderLimitAutoResume(goalId: string, ctx: StatusContext): void;
   resumeGoalWithContinuation(goalId: string, source: GoalEntrySource, ctx: StatusContext): GoalResult;
 }
@@ -169,6 +170,14 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
     return stateController.completeGoal(source, ctx);
   };
 
+  // Flush usage accounting before pausing so the persisted paused snapshot
+  // carries the tokens/time spent up to the hard block.
+  const pauseGoal = (source: GoalEntrySource, ctx: ExtensionContext): GoalResult => {
+    providerLimitAutoResume.clear();
+    goalAccounting.accountProgress(ctx, false, 0, true);
+    return stateController.pauseGoal(source, ctx);
+  };
+
   return {
     getGoalForDisplay: goalForDisplay,
     getGoalStartTurnStrategy: () => goalStartTurnStrategy(runtimeState.recoveryState.phase),
@@ -185,6 +194,7 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
       status.refreshUi(ctx);
     },
     completeGoal,
+    pauseGoal,
     resumeGoalWithContinuation,
     ...eventHandlers,
   };
@@ -196,6 +206,7 @@ export function registerGoalRuntimeController(pi: ExtensionAPI): void {
     getGoal: () => controller.getGoalForDisplay(),
     setGoal: controller.setGoal.bind(controller),
     completeGoal: controller.completeGoal.bind(controller),
+    pauseGoal: controller.pauseGoal.bind(controller),
   });
   registerGoalCommand(pi, {
     getGoal: () => controller.getGoalForDisplay(),

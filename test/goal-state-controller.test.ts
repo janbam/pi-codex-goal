@@ -10,6 +10,7 @@ import {
   recoveryPhaseNeedsUserStartTurn,
 } from "../src/recovery-machine.js";
 import type { StatusContext } from "../src/goal-runtime-status.js";
+import { isGoalCustomEntry } from "../src/state.js";
 import type { ThreadGoal } from "../src/types.js";
 
 const activeGoal: ThreadGoal = {
@@ -41,19 +42,26 @@ function createStateControllerTestHarness(goal: ThreadGoal | null = activeGoal) 
     ui: { setStatus() {} },
   } satisfies StatusContext;
 
+  // Record applied transition effects so tests can assert the effect bundle,
+  // not just the persisted snapshot.
+  const effectCalls: string[] = [];
+  const record = (name: string) => () => {
+    effectCalls.push(name);
+  };
+
   const stateController = createGoalStateController({
     pi,
     persistence,
     getRecoveryState: () => recoveryState,
     transitionEffectHandlers: {
-      clearContinuation: () => {},
-      clearActiveAccounting: () => {},
-      resetRecovery: () => {},
-      clearBudgetWarning: () => {},
-      clearHostOverflowRecovery: () => {},
-      setRecoveryPausedAttention: () => {},
-      markContinuationQueued: () => {},
-      stopStatusRefresh: () => {},
+      clearContinuation: record("clearContinuation"),
+      clearActiveAccounting: record("clearActiveAccounting"),
+      resetRecovery: record("resetRecovery"),
+      clearBudgetWarning: record("clearBudgetWarning"),
+      clearHostOverflowRecovery: record("clearHostOverflowRecovery"),
+      setRecoveryPausedAttention: record("setRecoveryPausedAttention"),
+      markContinuationQueued: record("markContinuationQueued"),
+      stopStatusRefresh: record("stopStatusRefresh"),
     },
     refreshUi: () => {
       refreshCount += 1;
@@ -65,6 +73,7 @@ function createStateControllerTestHarness(goal: ThreadGoal | null = activeGoal) 
     stateController,
     entries,
     persistence,
+    effectCalls,
     get refreshCount() {
       return refreshCount;
     },
@@ -162,4 +171,50 @@ test("persistHostOverflowUserReset appends only when phase changes", () => {
   const cleared = harness.entries[1] as { kind?: string; active?: boolean };
   assert.equal(cleared.kind, "host_overflow_cap_reset");
   assert.equal(cleared.active, false);
+});
+
+test("pauseGoal transitions an active goal to paused and persists a tool-sourced snapshot", () => {
+  const harness = createStateControllerTestHarness(activeGoal);
+
+  const result = harness.stateController.pauseGoal("tool", harness.ctx);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.goal?.status, "paused");
+  const pauseEntries = harness.entries.flatMap((entry) =>
+    isGoalCustomEntry(entry) && entry.kind === "set" && entry.source === "tool" ? [entry] : [],
+  );
+  assert.equal(pauseEntries.length, 1);
+  assert.equal(pauseEntries[0]?.goal.status, "paused");
+  // Tool pause must carry the same effect bundle as other pause paths,
+  // including recovery reset, so no stale recovery state survives.
+  assert.deepEqual(harness.effectCalls, [
+    "clearContinuation",
+    "clearActiveAccounting",
+    "resetRecovery",
+    "clearBudgetWarning",
+  ]);
+});
+
+test("pauseGoal rejects goals that are not active", () => {
+  const pausedHarness = createStateControllerTestHarness({ ...activeGoal, status: "paused" });
+  assert.equal(pausedHarness.stateController.pauseGoal("tool", pausedHarness.ctx).ok, false);
+
+  const budgetHarness = createStateControllerTestHarness({
+    ...activeGoal,
+    status: "budgetLimited",
+    tokenBudget: 10,
+    usage: { tokensUsed: 10, activeSeconds: 0 },
+  });
+  const result = budgetHarness.stateController.pauseGoal("tool", budgetHarness.ctx);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /Only active goals can be paused/);
+});
+
+test("pauseGoal rejects when no goal exists", () => {
+  const harness = createStateControllerTestHarness(null);
+
+  const result = harness.stateController.pauseGoal("tool", harness.ctx);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.goal, null);
 });
